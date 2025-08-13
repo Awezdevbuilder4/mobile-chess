@@ -1,0 +1,21 @@
+{
+  "name": "Awez Chess",
+  "short_name": "Chess",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#1f4037",
+  "theme_color": "#99f2c8",
+  "description": "Play chess with friends or AI bot",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

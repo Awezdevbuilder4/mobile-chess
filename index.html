@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Mobile-friendly viewport -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>AwezChess Bot</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    :root{
+      /* Each square = 1/8th of the shortest viewport side */
+      --sq: 12.5vmin;
+      --piece: 6.2vmin; /* piece font size scales with squares */
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+      background: linear-gradient(135deg, #1f4037, #99f2c8);
+      text-align: center;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    #welcomeScreen {
+      margin-top: 50px;
+      color: white;
+      padding: 10px;
+    }
+
+    #startBtn, #botBtn {
+      font-size: 18px;
+      padding: 12px 30px;
+      margin: 8px;
+      background: limegreen;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(0,0,0,.6);
+    }
+
+    #startBtn:hover, #botBtn:hover { background-color: #169e16; }
+
+    /* Responsive chess board */
+    #board {
+      display: none;                 /* shown on start */
+      grid-template-columns: repeat(8, var(--sq));
+      grid-template-rows: repeat(8, var(--sq));
+      margin: 10px auto 16px;
+      border: 4px solid white;
+      border-radius: 12px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      width: calc(var(--sq) * 8);
+      max-width: 96vmin;             /* tiny padding on edges */
+      background: #0002;
+    }
+
+    .square {
+      width: var(--sq);
+      height: var(--sq);
+      font-size: var(--piece);
+      line-height: var(--sq);
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+    }
+
+    .last-move { background-color: #ffff8fbf !important; }
+    .light { background-color: #f0d9b5; }
+    .dark  { background-color: #b58863; }
+    .selected { outline: 3px solid cyan; outline-offset: -3px; }
+
+    .dot {
+      width: 22%;
+      height: 22%;
+      background-color: rgba(0,0,0,0.75);
+      border-radius: 50%;
+      position: absolute;
+      top: 39%;
+      left: 39%;
+      pointer-events: none;
+    }
+
+    #timerBox {
+      margin-top: 8px;
+      font-size: 22px;
+      color: white;
+    }
+
+    #checkmateMessage {
+      display: none;
+      position: fixed;
+      inset: 0;
+      margin: auto;
+      width: min(90vw, 420px);
+      height: fit-content;
+      top: 30%;
+      background: white;
+      color: black;
+      padding: 20px;
+      font-size: 26px;
+      border: 5px solid limegreen;
+      border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      z-index: 999;
+      text-align: center;
+    }
+
+    .confetti {
+      font-size: 30px;
+      animation: pop 1s ease-out infinite alternate;
+    }
+
+    @keyframes pop {
+      0% { transform: translateY(0); opacity: 1; }
+      100% { transform: translateY(-20px); opacity: 0.25; }
+    }
+
+    #panelsWrap{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      place-items: center;
+      margin: 0 auto 40px;
+      width: min(700px, 92vw);
+    }
+
+    #moveHistory, #analysisPanel {
+      width: 100%;
+      max-height: 320px;
+      overflow: auto;
+      background: white;
+      color: #222;
+      padding: 12px;
+      border-radius: 12px;
+      box-shadow: 0 0 12px rgba(0,0,0,.35);
+      text-align: left;
+      font-size: 16px;
+    }
+
+    #analysisPanel h3, #moveHistory h3 { margin: 4px 0 8px; }
+
+    .time-controls { margin-top: 14px; }
+
+    .time-controls button {
+      font-size: 16px;
+      padding: 8px 14px;
+      margin: 5px;
+      background: #1f4037;
+      color: white;
+      border: 2px solid limegreen;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: .25s;
+    }
+    .time-controls button:hover { background: limegreen; color: black; }
+
+    /* Action buttons (resign / draw) */
+    .actions button{
+      padding: 10px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 10px;
+      color: white;
+      cursor: pointer;
+      margin: 0 6px 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,.45);
+    }
+    .btn-resign { background: crimson; }
+    .btn-draw   { background: darkorange; }
+
+    /* Mobile tweaks */
+    @media (max-width: 600px){
+      :root{
+        --piece: 7.2vmin; /* slightly larger pieces on small phones */
+      }
+      #startBtn, #botBtn{
+        display: block;
+        width: 84%;
+        margin: 8px auto;
+      }
+      #timerBox{ font-size: 18px; }
+      #moveHistory, #analysisPanel{ font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="welcomeScreen">
+    <h1>♟️ Play Chess with <strong>AwezChess Bot</strong></h1>
+    <button id="startBtn">Play with Friend</button>
+    <button id="botBtn">Play with Sarvesh (Bot)</button>
+
+    <div class="time-controls">
+      <strong style="color: white;">Select Time Control:</strong><br><br>
+      <button onclick="setTimeControl(60)">Bullet (1 min)</button>
+      <button onclick="setTimeControl(180)">Blitz (3 min)</button>
+      <button onclick="setTimeControl(300)">Blitz (5 min)</button>
+      <button onclick="setTimeControl(600)">Rapid (10 min)</button>
+    </div>
+  </div>
+
+  <div id="timerBox">
+    ⏱️ White: <span id="whiteTime">10:00</span> | Black: <span id="blackTime">10:00</span>
+  </div>
+
+  <div id="board"></div>
+
+  <div class="actions">
+    <button class="btn-resign" onclick="resignGame()">Resign</button>
+    <button class="btn-draw" onclick="offerDraw()">Offer Draw</button>
+  </div>
+
+  <div id="checkmateMessage"></div>
+
+  <div id="panelsWrap">
+    <div id="moveHistory">
+      <h3>♟ Move History</h3>
+      <ol id="moveList" style="margin:0 0 0 18px;"></ol>
+    </div>
+
+    <div id="analysisPanel">
+      <h3>📊 Mini Analysis</h3>
+      <ul id="analysisList" style="margin:0 0 0 18px; padding-left: 12px;"></ul>
+    </div>
+  </div>
+
+  <script>
+    // --- Original logic preserved; only layout is made responsive ---
+
+    let vsBot = false;
+    let moveHistory = [];
+    const moveList = document.getElementById("moveList");
+    const analysisList = document.getElementById("analysisList");
+    const checkmateMsg = document.getElementById("checkmateMessage");
+    const board = document.getElementById("board");
+
+    let lastMoveSquare = null;
+    let selected = null;
+    let isWhiteTurn = true;
+    let legalMoves = [];
+
+    let whiteTime = 600;
+    let blackTime = 600;
+    let timerInterval;
+    let selectedTimeControl = 600;
+
+    const PIECES = {
+      "r": "♜", "n": "♞", "b": "♝", "q": "♛", "k": "♚", "p": "♟",
+      "R": "♖", "N": "♘", "B": "♗", "Q": "♕", "K": "♔", "P": "♙",
+      ".": ""
+    };
+
+    let boardPos = [
+      "rnbqkbnr",
+      "pppppppp",
+      "........",
+      "........",
+      "........",
+      "........",
+      "PPPPPPPP",
+      "RNBQKBNR"
+    ];
+
+    document.getElementById("startBtn").onclick = () => {
+      vsBot = false;
+      startGame();
+    };
+    document.getElementById("botBtn").onclick = () => {
+      vsBot = true;
+      startGame();
+    };
+
+    function setTimeControl(seconds) {
+      selectedTimeControl = seconds;
+      whiteTime = seconds;
+      blackTime = seconds;
+      updateTimerDisplay();
+    }
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        if (isWhiteTurn) {
+          whiteTime--;
+          if (whiteTime <= 0) return handleTimeout("Black");
+        } else {
+          blackTime--;
+          if (blackTime <= 0) return handleTimeout("White");
+        }
+        updateTimerDisplay();
+      }, 1000);
+    }
+
+    function updateTimerDisplay() {
+      document.getElementById("whiteTime").textContent = formatTime(whiteTime);
+      document.getElementById("blackTime").textContent = formatTime(blackTime);
+    }
+
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    }
+
+    function handleTimeout(winner) {
+      clearInterval(timerInterval);
+      checkmateMsg.style.display = "block";
+      checkmateMsg.innerHTML = `
+        <div class="confetti">⏱️ Timeout ⏱️</div>
+        <div style="margin-top:6px">${winner} wins on time!</div>
+        <button onclick="location.reload()" style="margin-top: 16px; padding: 10px 22px; font-size: 18px; background-color: limegreen; color: white; border: none; border-radius: 8px; cursor: pointer;">Restart</button>
+      `;
+    }
+
+    function startGame() {
+      document.getElementById("welcomeScreen").style.display = "none";
+      board.style.display = "grid";
+      whiteTime = selectedTimeControl;
+      blackTime = selectedTimeControl;
+      drawBoard();
+      updateTimerDisplay();
+      startTimer();
+    }
+
+    function drawBoard() {
+      board.innerHTML = "";
+      document.querySelectorAll('.last-move').forEach(sq => sq.classList.remove('last-move'));
+
+      for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+          const square = document.createElement("div");
+          const color = (row + col) % 2 === 0 ? "light" : "dark";
+          square.className = `square ${color}`;
+          square.dataset.row = row;
+          square.dataset.col = col;
+
+          const piece = boardPos[row][col];
+          square.textContent = PIECES[piece];
+
+          if (lastMoveSquare && lastMoveSquare[0] === row && lastMoveSquare[1] === col) {
+            square.classList.add("last-move");
+          }
+
+          if (legalMoves.some(m => m[0] == row && m[1] == col)) {
+            const dot = document.createElement("div");
+            dot.classList.add("dot");
+            square.appendChild(dot);
+          }
+
+          square.addEventListener("click", () => handleClick(row, col));
+          board.appendChild(square);
+        }
+      }
+    }
+
+    function handleClick(row, col) {
+    const piece = boardPos[row][col];
+    const isWhitePiece = piece === piece.toUpperCase();
+
+    if (selected) {
+        const [fromRow, fromCol] = selected;
+        const movingPiece = boardPos[fromRow][fromCol];
+        const targetPiece = boardPos[row][col];
+        const isTargetWhite = targetPiece === targetPiece.toUpperCase();
+
+        const isLegalMove = legalMoves.some(m => m[0] === row && m[1] === col);
+        if (isLegalMove && (targetPiece === "." || isWhiteTurn !== isTargetWhite)) {
+            boardPos[row] = replaceAt(boardPos[row], col, movingPiece);
+            boardPos[fromRow] = replaceAt(boardPos[fromRow], fromCol, ".");
+
+            lastMoveSquare = [row, col];
+
+            // Add move to history + mini analysis
+            const file = ['a','b','c','d','e','f','g','h'];
+            const move = `${PIECES[movingPiece]} ${file[fromCol]}${8 - fromRow} → ${file[col]}${8 - row}${targetPiece !== "." ? " ×" + PIECES[targetPiece] : ""}`;
+            moveHistory.push(move);
+
+            const li = document.createElement("li");
+            li.textContent = move;
+            moveList.appendChild(li);
+
+            const analysisPoint = targetPiece !== "." ? `Good capture: ${PIECES[targetPiece]}` : `Standard move`;
+            const analysis = document.createElement("li");
+            analysis.textContent = analysisPoint;
+            analysisList.appendChild(analysis);
+
+            isWhiteTurn = !isWhiteTurn;
+            selected = null;
+            legalMoves = [];
+            drawBoard();
+
+            setTimeout(() => {
+                const enemyKing = !isWhiteTurn ? 'k' : 'K';
+
+                // Use styled popup for check
+                if (isKingInCheck(enemyKing)) {
+                    if (isCheckmate(enemyKing)) {
+                        clearInterval(timerInterval);
+                        showCheckmateMessage();
+                        return;
+                    } else {
+                        checkmateMsg.style.display = "block";
+                        checkmateMsg.innerHTML = `
+                            <div class="confetti">⚠️ Check! ⚠️</div>
+                            <div style="margin-top:6px">${enemyKing==="K"?"White":"Black"} is in check!</div>
+                            <button onclick="checkmateMsg.style.display='none';" style="margin-top:16px;padding:10px 22px;font-size:18px;background-color:orange;color:white;border:none;border-radius:8px;cursor:pointer;">Close</button>
+                        `;
+                    }
+                }
+
+                if (vsBot && !isWhiteTurn) makeBotMove();
+            }, 200);
+        } else {
+            selected = null;
+            legalMoves = [];
+            drawBoard();
+        }
+    } else if (piece !== "." && isWhitePiece === isWhiteTurn) {
+        selected = [row, col];
+        legalMoves = findLegalMoves(piece, row, col);
+        drawBoard();
+        const index = row * 8 + col;
+        document.querySelectorAll(".square")[index].classList.add("selected");
+    }
+}
+
+    function showCheckmateMessage() {
+      checkmateMsg.style.display = "block";
+      checkmateMsg.innerHTML = `
+        <div class="confetti">🎉 Checkmate! 🎉</div>
+        <div style="margin-top:6px">Game Over.</div>
+        <div class="confetti" style="margin-top:6px">🎉 You Win! 🎉</div>
+        <button onclick="location.reload()" style="margin-top: 16px; padding: 10px 22px; font-size: 18px; background-color: limegreen; color: white; border: none; border-radius: 8px; cursor: pointer;">Restart</button>
+      `;
+    }
+
+    function makeBotMove() {
+      let bestMove = null, bestScore = -Infinity;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const piece = boardPos[r][c];
+          if (piece !== "." && piece === piece.toLowerCase()) {
+            const moves = findLegalMoves(piece, r, c);
+            for (let [tr, tc] of moves) {
+              const target = boardPos[tr][tc];
+              const score = pieceValue(target) - Math.random();
+              if (score > bestScore) {
+                bestScore = score;
+                bestMove = { from: [r, c], to: [tr, tc], piece };
+              }
+            }
+          }
+        }
+      }
+      if (!bestMove) return;
+const [fromR, fromC] = bestMove.from;
+const [toR, toC] = bestMove.to;
+
+// Move the piece
+boardPos[toR] = replaceAt(boardPos[toR], toC, bestMove.piece);
+boardPos[fromR] = replaceAt(boardPos[fromR], fromC, ".");
+
+// --- Pawn promotion for bot's pawns ---
+if (bestMove.piece === "p" && toR === 7) { 
+    // Black pawn reaches last rank
+    boardPos[toR] = replaceAt(boardPos[toR], toC, "q");
+} else if (bestMove.piece === "P" && toR === 0) {
+    // White pawn reaches last rank (if bot somehow moves white)
+    boardPos[toR] = replaceAt(boardPos[toR], toC, "Q");
+}
+
+isWhiteTurn = true;
+drawBoard();
+
+      setTimeout(() => {
+        if (isKingInCheck("K")) {
+          if (isCheckmate("K")) {
+            showCheckmateMessage();
+          } else {
+            alert("Check!");
+          }
+        }
+      }, 600);
+    }
+
+    function pieceValue(piece) {
+      if (piece === ".") return 0;
+      switch (piece.toLowerCase()) {
+        case 'p': return 1;
+        case 'n':
+        case 'b': return 3;
+        case 'r': return 5;
+        case 'q': return 9;
+        case 'k': return 100;
+      }
+      return 0;
+    }
+
+    function replaceAt(str, index, replacement) {
+      return str.substring(0, index) + replacement + str.substring(index + 1);
+    }
+
+    function clearPath(fromR, fromC, toR, toC) {
+      const dx = Math.sign(toC - fromC);
+      const dy = Math.sign(toR - fromR);
+      let r = fromR + dy, c = fromC + dx;
+      while (r !== toR || c !== toC) {
+        if (boardPos[r][c] !== ".") return false;
+        r += dy; c += dx;
+      }
+      return true;
+    }
+
+    function findLegalMoves(piece, row, col) {
+      const moves = [];
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const target = boardPos[r][c];
+          const isTargetWhite = target === target.toUpperCase();
+          if ((target === "." || isTargetWhite !== (piece === piece.toUpperCase())) && isLegal(piece, row, col, r, c)) {
+            const backup = boardPos.map(rr => rr.slice());
+            boardPos[r] = replaceAt(boardPos[r], c, piece);
+            boardPos[row] = replaceAt(boardPos[row], col, ".");
+            const king = piece === piece.toUpperCase() ? "K" : "k";
+            if (!isKingInCheck(king)) moves.push([r, c]);
+            boardPos = backup.map(rr => rr.slice());
+          }
+        }
+      }
+      return moves;
+    }
+
+    function isLegal(piece, fromR, fromC, toR, toC) {
+      const dx = toC - fromC, dy = toR - fromR;
+      const absDx = Math.abs(dx), absDy = Math.abs(dy);
+      const dir = piece === piece.toUpperCase() ? -1 : 1;
+      switch (piece.toLowerCase()) {
+        case "p":
+          if (dx === 0 && boardPos[toR][toC] === ".") {
+            if (dy === dir) return true;
+            if ((piece === "P" && fromR === 6 && dy === -2 && boardPos[5][fromC] === ".") ||
+                (piece === "p" && fromR === 1 && dy === 2 && boardPos[2][fromC] === ".")) return true;
+          }
+          if (absDx === 1 && dy === dir && boardPos[toR][toC] !== "." &&
+              (piece === piece.toUpperCase()) !== (boardPos[toR][toC] === boardPos[toR][toC].toUpperCase())) return true;
+          break;
+        case "r": return (dx === 0 || dy === 0) && clearPath(fromR, fromC, toR, toC);
+        case "n": return (absDx === 1 && absDy === 2) || (absDx === 2 && absDy === 1);
+        case "b": return absDx === absDy && clearPath(fromR, fromC, toR, toC);
+        case "q": return (dx === 0 || dy === 0 || absDx === absDy) && clearPath(fromR, fromC, toR, toC);
+        case "k": return absDx <= 1 && absDy <= 1;
+      }
+      return false;
+    }
+
+    function findKing(king) {
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (boardPos[r][c] === king) return [r, c];
+        }
+      }
+      return null;
+    }
+
+function isKingInCheck(king) {
+    const [kr, kc] = findKing(king) || [];
+    if (kr === undefined) return false;
+
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const p = boardPos[r][c];
+            if (p !== "." && (p.toUpperCase() === p) !== (king === "K") && isLegal(p, r, c, kr, kc)) {
+                checkmateMsg.style.display = "block";
+                checkmateMsg.innerHTML = `
+                    <div class="confetti">⚠️ Check! ⚠️</div>
+                    <div style="margin-top:6px">${king === "K" ? "White" : "Black"} is in check!</div>
+                    <button onclick="checkmateMsg.style.display='none';" style="
+                        margin-top:16px;
+                        padding:10px 22px;
+                        font-size:18px;
+                        background-color:orange;
+                        color:white;
+                        border:none;
+                        border-radius:8px;
+                        cursor:pointer;
+                    ">Close</button>
+                `;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+    function isCheckmate(king) {
+      if (!isKingInCheck(king)) return false;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const piece = boardPos[r][c];
+          if (piece !== "." && (piece === piece.toUpperCase()) === (king === "K")) {
+            if (findLegalMoves(piece, r, c).length > 0) return false;
+          }
+        }
+      }
+      return true;
+    }
+
+    function resignGame() {
+      clearInterval(timerInterval);
+      const winner = isWhiteTurn ? "Black" : "White";
+      checkmateMsg.style.display = "block";
+      checkmateMsg.innerHTML = `
+        <div class="confetti">🏳️ Resignation 🏳️</div>
+        <div style="margin-top:6px">${winner} wins by resignation.</div>
+        <button onclick="location.reload()" style="margin-top: 16px; padding: 10px 22px; font-size: 18px; background-color: limegreen; color: white; border: none; border-radius: 8px; cursor: pointer;">Restart</button>
+      `;
+    }
+
+    function offerDraw() {
+      if (confirm("Do both players agree to a draw?")) {
+        clearInterval(timerInterval);
+        board.style.display = "none";
+        checkmateMsg.style.display = "block";
+        checkmateMsg.innerHTML = `
+          <div class="confetti">🤝 Draw 🤝</div>
+          <div style="margin-top:6px">The game is a draw by agreement.</div>
+          <button onclick="location.reload()" style="margin-top: 16px; padding: 10px 22px; font-size: 18px; background-color: limegreen; color: white; border: none; border-radius: 8px; cursor: pointer;">Restart</button>
+        `;
+      }
+    }
+  </script>
+</body>
+</html>
